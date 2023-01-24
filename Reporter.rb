@@ -124,7 +124,7 @@ class MarkdownReporter < Reporter
 			end
 			aLine = tmp
 		elsif aLine.is_a?(String) then
-			aLine = "[#{FileUtil.getFilenameFromPath(aLine)}](#{aLine})" if aLine.start_with?("http://")
+			aLine = "[#{FileUtil.getFilenameFromPath(aLine)}](#{aLine})" if aLine.start_with?("http://") || aLine.start_with?("https://")
 		end
 
 		return aLine

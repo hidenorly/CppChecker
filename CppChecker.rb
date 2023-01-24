@@ -42,19 +42,20 @@ class RepoUtil
 		return nil
 	end
 
-	def self.getPathesFromManifestSub(basePath, manifestFilename, pathes, pathFilter, groupFilter)
+	def self.getPathesFromManifestSub(basePath, manifestFilename, pathGitPath, pathFilter, groupFilter)
 		manifestPath = getAvailableManifestPath(basePath, manifestFilename)
 		if manifestPath && FileTest.exist?(manifestPath) then
 			doc = REXML::Document.new(open(manifestPath))
 			doc.elements.each("manifest/include[@name]") do |anElement|
-				getPathesFromManifestSub(basePath, anElement.attributes["name"], pathes, pathFilter, groupFilter)
+				getPathesFromManifestSub(basePath, anElement.attributes["name"], pathGitPath, pathFilter, groupFilter)
 			end
 			doc.elements.each("manifest/project[@path]") do |anElement|
-				theGitPath = anElement.attributes["path"].to_s
-				if pathFilter.empty? || ( !pathFilter.to_s.empty? && theGitPath.match( pathFilter.to_s ) ) then
+				thePath = anElement.attributes["path"].to_s
+				theGitPath = anElement.attributes["name"].to_s
+				if pathFilter.empty? || ( !pathFilter.to_s.empty? && thePath.match( pathFilter.to_s ) ) then
 					theGroups = anElement.attributes["groups"].to_s
 					if theGroups.empty? || groupFilter.empty? || ( !groupFilter.to_s.empty? && theGroups.match( groupFilter.to_s ) ) then
-						pathes << "#{basePath}/#{theGitPath}"
+						pathGitPath[thePath] = theGitPath
 					end
 				end
 			end
@@ -62,10 +63,16 @@ class RepoUtil
 	end
 
 	def self.getPathesFromManifest(basePath, pathFilter="", groupFilter="")
-		pathes = []
-		getPathesFromManifestSub(basePath, DEF_MANIFESTFILE, pathes, pathFilter, groupFilter)
+		pathGitPath = {}
 
-		return pathes
+		getPathesFromManifestSub(basePath, DEF_MANIFESTFILE, pathGitPath, pathFilter, groupFilter)
+
+		pathes = []
+		pathGitPath.keys.each do |aPath|
+			pathes << "#{basePath}/#{aPath}"
+		end
+
+		return pathes, pathGitPath
 	end
 end
 
@@ -187,7 +194,7 @@ class GitUtil
 	end
 
 	def self.getHeadCommitId(gitPath)
-		exec_cmd = "git show --pretty=\"%h\" HEAD"
+		exec_cmd = "git log --pretty=\"%H\" HEAD -1"
 		results = ExecUtil.getExecResultEachLine(exec_cmd, gitPath, false, true)
 		return !results.empty? ? results[0] : nil
 	end
@@ -261,6 +268,7 @@ class CppCheckExecutor < TaskAsync
 		isGitDirectory = GitUtil.isGitDirectory(@path)
 		results[:name] = FileUtil.getFilenameFromPath(@path)
 		results[:path] = @path.slice( AndroidUtil.getAndroidRootPath(@path).to_s.length, @path.length )
+		results[:fullPath] = @path
 		results[:results] = @cppCheck.execute( isGitDirectory ? @options[:gitOpt] ? GitUtil.getFilesWithGitOpts( @path, @options[:gitOpt] ) : ["."] : ["."] )
 		results[:results] = enhanceResult( results[:results] ) if isGitDirectory
 		@resultCollector.onResult(@path, results) if @resultCollector && !results[:results].empty?
@@ -268,6 +276,11 @@ class CppCheckExecutor < TaskAsync
 	end
 end
 
+class CodeWebHelper
+	def self.getCodeLink( baseUrl, gitPath, sha1, filename, line )
+		return "[#{line}](#{baseUrl}/#{gitPath}/+/#{sha1}/#{filename}\##{line})"
+	end
+end
 
 
 #---- main --------------------------
@@ -279,6 +292,7 @@ options = {
 	:exceptFiles => "test",
 	:summarySection => "moduleName|path|error|warning|performance|style|information",
 	:enableLinkInSummary => false,
+	:codeLink => nil,
 	:filterAuthorMatch => nil,
 	:detailSection => nil,
 	:optEnable => nil, # subset of "warning,style,performance,portability,information,unusedFunction,missingInclude" or "all"
@@ -321,7 +335,7 @@ opt_parser = OptionParser.new do |opts|
 		end
 	end
 
-	opts.on("-g", "--gitOpt=", "Specify option for git (default:#{options[:gitOpt]}") do |gitOpt|
+	opts.on("-g", "--gitOpt=", "Specify option for git (default:#{options[:gitOpt]})") do |gitOpt|
 		options[:gitOpt] = gitOpt
 	end
 
@@ -363,12 +377,18 @@ opt_parser = OptionParser.new do |opts|
 		options[:enableLinkInSummary] = true
 	end
 
+	opts.on("-c", "--codeLink=", "Set code link such as gitlies, etc. Note that this is only available if repo's manifest is available and markdown") do |codeLink|
+		codeLink = codeLink.slice(0, codeLink.length-1) if codeLink.end_with?("/")
+		options[:codeLink] = codeLink
+	end
+
 	opts.on("", "--verbose", "Enable verbose status output") do
 		options[:verbose] = true
 	end
 end.parse!
 
 componentPaths = []
+pathGitPaths = {}
 
 if ARGV.length < 1 then
 	puts opt_parser
@@ -379,7 +399,7 @@ else
 		puts ARGV[0] + " is not found"
 		exit(-1)
 	else
-		componentPaths = RepoUtil.getPathesFromManifest( ARGV[0] )
+		componentPaths, pathGitPaths = RepoUtil.getPathesFromManifest( ARGV[0] )
 		if componentPaths.empty? then
 			ARGV.each do |aPath|
 				componentPaths << aPath if FileTest.directory?(aPath)
@@ -489,6 +509,10 @@ end
 if options[:mode] == "detail" || options[:mode] == "all" then
 	_result.each do |moduleName, theResult|
 		results = theResult[:results]
+		theModulePath = theResult[:path]
+		theModulePath = theModulePath.slice(1, theModulePath.length) if theModulePath.start_with?("/")
+		theHead = GitUtil.getHeadCommitId(theResult[:fullPath])
+		theHead = "HEAD" if !theHead
 
 		#results = results.sort_by { |h| h.values_at("filename", "line") }
 		tmp = {}
@@ -505,7 +529,13 @@ if options[:mode] == "detail" || options[:mode] == "all" then
 		results = []
 		tmp.each do | filename, aResults |
 			aResults.each do | aResult |
-				aResult[:theLine] = "```#{aResult[:theLine]}```" if reporter == MarkdownReporter && aResult.has_key?(:theLine)
+				if reporter == MarkdownReporter then
+					aResult[:theLine] = "```#{aResult[:theLine]}```" if aResult.has_key?(:theLine)
+					if options[:codeLink] && aResult["line"] && pathGitPaths.has_key?(theModulePath) then
+						aResult["line"] = CodeWebHelper.getCodeLink( options[:codeLink], pathGitPaths[theModulePath], theHead, filename, aResult["line"] )
+					end
+				end
+
 				results << aResult
 			end
 		end
