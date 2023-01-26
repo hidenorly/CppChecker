@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 
-# Copyright 2022 hidenory
+# Copyright 2022, 2023 hidenory
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 
 require 'fileutils'
 require 'optparse'
-require 'shellwords'
-require 'json'
 require 'rexml/document'
 require_relative 'FileUtil'
 require_relative 'StrUtil'
@@ -88,6 +86,7 @@ class AndroidUtil
 	    "/build/",
 	    "/compatibility/",
 	    "/bootable/",
+	    "/bootloader/",
 	    "/bionic/",
 	    "/art/",
 	    "/dalvik/",
@@ -279,6 +278,20 @@ end
 class CodeWebHelper
 	def self.getCodeLink( baseUrl, gitPath, sha1, filename, line )
 		return "[#{line}](#{baseUrl}/#{gitPath}/+/#{sha1}/#{filename}\##{line})"
+	end
+
+	def self.getRobustGitPath(pathGitPaths, theModulePath)
+		result = nil
+		result = pathGitPaths[theModulePath] if pathGitPaths.has_key?(theModulePath)
+		if !result then
+			pathGitPaths.each do |path, gitPath|
+				if path.include?(theModulePath) then
+					result = gitPath
+					break
+				end
+			end
+		end
+		return result
 	end
 end
 
@@ -531,8 +544,11 @@ if options[:mode] == "detail" || options[:mode] == "all" then
 			aResults.each do | aResult |
 				if reporter == MarkdownReporter then
 					aResult[:theLine] = "```#{aResult[:theLine]}```" if aResult.has_key?(:theLine)
-					if options[:codeLink] && aResult["line"] && pathGitPaths.has_key?(theModulePath) then
-						aResult["line"] = CodeWebHelper.getCodeLink( options[:codeLink], pathGitPaths[theModulePath], theHead, filename, aResult["line"] )
+					if options[:codeLink] && aResult["line"] then
+						gitPath = CodeWebHelper.getRobustGitPath( pathGitPaths, theModulePath )
+						if gitPath then
+							aResult["line"] = CodeWebHelper.getCodeLink( options[:codeLink], gitPath, theHead, filename, aResult["line"] )
+						end
 					end
 				end
 
