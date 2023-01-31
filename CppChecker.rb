@@ -123,9 +123,10 @@ class CppChecker
 	DEF_CPPCHECK_TEMPLATE = "[{file}],[{line}],[{severity}],[{id}],[{message}]"
 	DEF_EXEC_TIMEOUT = 60*3
 
-	def initialize(targetPath, optEnable, timeOut=DEF_EXEC_TIMEOUT, maxThreads = 1)
+	def initialize(targetPath, optEnable, ignoreFiles, timeOut=DEF_EXEC_TIMEOUT, maxThreads = 1)
 		@targetPath = File.expand_path(targetPath)
 		@optEnable = optEnable
+		@ignoreFiles = ignoreFiles
 		@timeOut = timeOut
 		@maxThreads = maxThreads
 	end
@@ -135,14 +136,17 @@ class CppChecker
 
 		_result = aLine.split("],[")
 		if _result.length >= 5 then
-			found = true
-			result["filename"] = _result[0].slice(1, _result[0].length)
-			result["line"] = _result[1]
-			result["severity"] = _result[2]
-			result["id"] = _result[3]
-			_result.shift(4)
-			_result = _result.join("],[")
-			result["message"] = _result.slice(0, _result.length-1)
+			filename = _result[0].slice(1, _result[0].length)
+			if !StrUtil.matches?(filename, @ignoreFiles) then
+				found = true
+				result["filename"] = filename
+				result["line"] = _result[1]
+				result["severity"] = _result[2]
+				result["id"] = _result[3]
+				_result.shift(4)
+				_result = _result.join("],[")
+				result["message"] = _result.slice(0, _result.length-1)
+			end
 		end
 		return result
 	end
@@ -243,7 +247,7 @@ class CppCheckExecutor < TaskAsync
 		@resultCollector = resultCollector
 		@path = path.to_s
 		@options = options
-		@cppCheck = CppChecker.new( path, options[:optEnable], options[:execTimeOut].to_i, options[:numOfThreads].to_i )
+		@cppCheck = CppChecker.new( path, options[:optEnable], options[:ignoreFiles], options[:execTimeOut].to_i, options[:numOfThreads].to_i )
 	end
 
 	def enhanceResult(results)
@@ -310,6 +314,7 @@ options = {
 	:detailSection => nil,
 	:optEnable => nil, # subset of "warning,style,performance,portability,information,unusedFunction,missingInclude" or "all"
 	:pathFilter => nil,
+	:ignoreFiles => [],
 	:surpressNonIssue => false,
 	:execTimeOut => 5*60,
 	:numOfThreads => TaskManagerAsync.getNumberOfProcessor()
@@ -364,8 +369,14 @@ opt_parser = OptionParser.new do |opts|
 		options[:detailSection] = detailSection
 	end
 
-	opts.on("-f", "--pathFilter=", "Specify file path filter (default:#{options[:pathFilter]})(\"\" means everything)") do |pathFilter|
+	opts.on("-f", "--pathFilter=", "Specify file path filter (matched file path only)(default:#{options[:pathFilter]})(\"\" means everything)") do |pathFilter|
 		options[:pathFilter] = pathFilter
+	end
+
+	opts.on("-i", "--ignoreFile=", "Specify ignore file e.g.ignore.txt or | separator files") do |ignoreFile|
+		options[:ignoreFiles] = FileUtil.readFileAsArray(ignoreFile) if !ignoreFile.include?("|")
+		options[:ignoreFiles] = ignoreFile.split("|") if options[:ignoreFiles].empty?
+		options[:ignoreFiles] = StrUtil.getRegexpArrayFromArray( options[:ignoreFiles] )
 	end
 
 	opts.on("-a", "--filterAuthorMatch=", "Specify if match-only-filter for git blame result (default:#{options[:filterAuthorMatch]})") do |filterAuthorMatch|
@@ -424,7 +435,7 @@ end
 if options[:pathFilter] then
 	_componentPaths = []
 	componentPaths.each do | aComponentPath |
-		_componentPaths << aComponentPath if aComponentPath.include?( options[:pathFilter] ) || aComponentPath.match( options[:pathFilter] )
+		_componentPaths << aComponentPath if ( aComponentPath.include?( options[:pathFilter] ) || aComponentPath.match( options[:pathFilter] ) ) && !StrUtil.matches?( aComponentPath, options[:ignoreFiles] )
 	end
 	componentPaths = _componentPaths
 end

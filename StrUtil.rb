@@ -1,4 +1,4 @@
-#  Copyright (C) 2021, 2022 hidenorly
+#  Copyright (C) 2021, 2022, 2023 hidenorly
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -124,6 +124,27 @@ class StrUtil
 			end
 		end
 		result = body if result.empty?
+		return result
+	end
+
+
+	def self.getRegexpArrayFromArray(regArray)
+		result = []
+		regArray.each do | aRegExp |
+			result << Regexp.new( aRegExp )
+		end
+		return result
+	end
+
+	def self.matches?(target, regArray)
+		result = false
+		target = target.to_s
+		regArray.each do | aRegExp |
+			if target.match?(aRegExp) then
+				result = true
+				break
+			end
+		end
 		return result
 	end
 end
