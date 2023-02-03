@@ -131,7 +131,8 @@ class StrUtil
 	def self.getRegexpArrayFromArray(regArray)
 		result = []
 		regArray.each do | aRegExp |
-			result << Regexp.new( aRegExp )
+			aRegExp = aRegExp.to_s.strip
+			result << Regexp.new( aRegExp ) if !aRegExp.empty?
 		end
 		return result
 	end

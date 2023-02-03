@@ -342,7 +342,7 @@ opt_parser = OptionParser.new do |opts|
 		options[:reportOutPath] = reportOutPath
 	end
 
-	opts.on("-r", "--reportFormat=", "Specify report format markdown|csv|xml (default:#{options[:reportFormat]})") do |reportFormat|
+	opts.on("-r", "--reportFormat=", "Specify report format markdown|csv|xml (default:markdown)") do |reportFormat|
 		case reportFormat.to_s.downcase
 		when "markdown"
 			reporter = MarkdownReporter
@@ -377,6 +377,7 @@ opt_parser = OptionParser.new do |opts|
 		options[:ignoreFiles] = FileUtil.readFileAsArray(ignoreFile) if !ignoreFile.include?("|")
 		options[:ignoreFiles] = ignoreFile.split("|") if options[:ignoreFiles].empty?
 		options[:ignoreFiles] = StrUtil.getRegexpArrayFromArray( options[:ignoreFiles] )
+
 	end
 
 	opts.on("-a", "--filterAuthorMatch=", "Specify if match-only-filter for git blame result (default:#{options[:filterAuthorMatch]})") do |filterAuthorMatch|
@@ -432,6 +433,8 @@ else
 	end
 end
 
+puts "ignoreFiles=#{options[:ignoreFiles]}" if options[:verbose]
+
 if options[:pathFilter] then
 	_componentPaths = []
 	componentPaths.each do | aComponentPath |
@@ -440,6 +443,7 @@ if options[:pathFilter] then
 	componentPaths = _componentPaths
 end
 
+puts "componentPaths=#{componentPaths}" if options[:verbose]
 
 taskMan = ThreadPool.new( options[:numOfThreads].to_i )
 componentPaths.each do | aPath |
