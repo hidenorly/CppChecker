@@ -196,15 +196,70 @@ class GitUtil
 		return File.directory?("#{gitPath}/.git")
 	end
 
+	def self.ensureSha1(sha1)
+		sha= sha1.to_s.match(/[0-9a-f]{5,40}/)
+		return sha ? sha[0] : nil
+	end
+
+	def self.ensureShas(shas)
+		result = []
+		shas.each do | aSha |
+			result << ensureSha1(aSha)
+		end
+
+		return result
+	end
+
+	def self.getLogNumStatBySha1(gitPath, commitId)
+		exec_cmd = "git log --numstat --pretty=\"\" #{commitId}"
+		exec_cmd += " 2>/dev/null"
+
+		return ExecUtil.getExecResultEachLine(exec_cmd, gitPath)
+	end
+
 	def self.getHeadCommitId(gitPath)
 		exec_cmd = "git log --pretty=\"%H\" HEAD -1"
 		results = ExecUtil.getExecResultEachLine(exec_cmd, gitPath, false, true)
 		return !results.empty? ? results[0] : nil
 	end
 
-	def self.getFilesWithGitOpts(gitPath, gitOpt = "")
+	def self.getTailCommitId(gitPath)
+		return _getTailCommits( gitPath, 1 ).to_s
+	end
+
+	def self._getTailCommits(gitPath, count = 1)
+		result = nil
+		exec_cmd = "git rev-list HEAD | tail -n #{count}"
+		exec_cmd += " 2>/dev/null"
+
+		result = ExecUtil.getExecResultEachLine(exec_cmd, gitPath)
+		return ensureShas(result)
+	end
+
+	def self.getActualTailCommitId(gitPath)
+		result = nil
+		candidate = _getTailCommits( gitPath, 2 )
+		candidate.reverse_each do | aCommitId |
+			numStatResult = getLogNumStatBySha1( gitPath, aCommitId )
+			if !numStatResult.empty? then
+				result = aCommitId
+				break
+			end
+		end
+		return result
+	end
+
+	def self.getFilesWithGitOpts(gitPath, gitOpt = "", existingFileOnly = true)
 		exec_cmd = "git log --name-only --pretty=\"\" #{gitOpt ? gitOpt : ""} | sort -u"
-		return ExecUtil.getExecResultEachLine(exec_cmd, gitPath, false, true, true)
+		result = ExecUtil.getExecResultEachLine(exec_cmd, gitPath, false, true, true)
+		if existingFileOnly then
+			_result = []
+			result.each do |aFile|
+				_result << aFile if File.exist?("#{gitPath}/#{aFile}")
+			end
+			result = _result
+		end
+		return result
 	end
 
 	def self._getValue(aLine, key)
@@ -250,16 +305,20 @@ class CppCheckExecutor < TaskAsync
 		@cppCheck = CppChecker.new( path, options[:optEnable], options[:ignoreFiles], options[:execTimeOut].to_i, options[:numOfThreads].to_i )
 	end
 
-	def enhanceResult(results)
+	def enhanceResult(results, ignoreInitialCommit = false)
 		_results = []
+		ignoreCommits = []
+		ignoreCommits <<  GitUtil.getActualTailCommitId( @path ) if ignoreInitialCommit
 
 		results.each do | aResult |
 			theResult = {}
 			theResult = GitUtil.gitBlame( @path, aResult["filename"], aResult["line"] ) if !aResult["filename"].empty? && aResult["filename"]!="nofile" && !aResult["line"].empty?
 			if theResult.empty? then
 				_results << aResult
-			else 
-				_results << aResult.merge( theResult )
+			else
+				if !ignoreInitialCommit || !ignoreCommits.include?( theResult[:commitId] ) then
+					_results << aResult.merge( theResult )
+				end
 			end
 		end
 
@@ -273,7 +332,7 @@ class CppCheckExecutor < TaskAsync
 		results[:path] = @path.slice( AndroidUtil.getAndroidRootPath(@path).to_s.length, @path.length )
 		results[:fullPath] = @path
 		results[:results] = @cppCheck.execute( isGitDirectory ? @options[:gitOpt] ? GitUtil.getFilesWithGitOpts( @path, @options[:gitOpt] ) : ["."] : ["."] )
-		results[:results] = enhanceResult( results[:results] ) if isGitDirectory
+		results[:results] = enhanceResult( results[:results], @options[:ignoreInitialCommit] ) if isGitDirectory
 		@resultCollector.onResult(@path, results) if @resultCollector && !results[:results].empty?
 		_doneTask()
 	end
@@ -315,6 +374,7 @@ options = {
 	:optEnable => nil, # subset of "warning,style,performance,portability,information,unusedFunction,missingInclude" or "all"
 	:pathFilter => nil,
 	:ignoreFiles => [],
+	:ignoreInitialCommit => false,
 	:surpressNonIssue => false,
 	:execTimeOut => 5*60,
 	:numOfThreads => TaskManagerAsync.getNumberOfProcessor()
@@ -377,7 +437,10 @@ opt_parser = OptionParser.new do |opts|
 		options[:ignoreFiles] = FileUtil.readFileAsArray(ignoreFile) if !ignoreFile.include?("|")
 		options[:ignoreFiles] = ignoreFile.split("|") if options[:ignoreFiles].empty?
 		options[:ignoreFiles] = StrUtil.getRegexpArrayFromArray( options[:ignoreFiles] )
+	end
 
+	opts.on("", "--ignoreInitialCommit", "Specify if ignore initial commit (default:#{options[:ignoreInitialCommit]})") do
+		options[:ignoreInitialCommit] = true
 	end
 
 	opts.on("-a", "--filterAuthorMatch=", "Specify if match-only-filter for git blame result (default:#{options[:filterAuthorMatch]})") do |filterAuthorMatch|
@@ -435,10 +498,20 @@ end
 
 puts "ignoreFiles=#{options[:ignoreFiles]}" if options[:verbose]
 
+# AND filter
 if options[:pathFilter] then
 	_componentPaths = []
 	componentPaths.each do | aComponentPath |
-		_componentPaths << aComponentPath if ( aComponentPath.include?( options[:pathFilter] ) || aComponentPath.match( options[:pathFilter] ) ) && !StrUtil.matches?( aComponentPath, options[:ignoreFiles] )
+		_componentPaths << aComponentPath if aComponentPath.include?( options[:pathFilter] ) || aComponentPath.match( options[:pathFilter] )
+	end
+	componentPaths = _componentPaths
+end
+
+# excluding filter
+if options[:ignoreFiles] then
+	_componentPaths = []
+	componentPaths.each do | aComponentPath |
+		_componentPaths << aComponentPath if !StrUtil.matches?( aComponentPath, options[:ignoreFiles] )
 	end
 	componentPaths = _componentPaths
 end
