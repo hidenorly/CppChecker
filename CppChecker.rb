@@ -307,7 +307,7 @@ class CppCheckExecutor < TaskAsync
 
 	def enhanceResult(results, ignoreInitialCommit = false)
 		_results = []
-		ignoreCommits = []
+		ignoreCommits = @options[:ignoreCommits]
 		ignoreCommits <<  GitUtil.getActualTailCommitId( @path ) if ignoreInitialCommit
 
 		results.each do | aResult |
@@ -316,7 +316,7 @@ class CppCheckExecutor < TaskAsync
 			if theResult.empty? then
 				_results << aResult
 			else
-				if !ignoreInitialCommit || !ignoreCommits.include?( theResult[:commitId] ) then
+				if !ignoreCommits.include?( theResult[:commitId] ) then
 					_results << aResult.merge( theResult )
 				end
 			end
@@ -375,6 +375,7 @@ options = {
 	:pathFilter => nil,
 	:ignoreFiles => [],
 	:ignoreInitialCommit => false,
+	:ignoreCommits => [],
 	:surpressNonIssue => false,
 	:execTimeOut => 5*60,
 	:numOfThreads => TaskManagerAsync.getNumberOfProcessor()
@@ -443,6 +444,10 @@ opt_parser = OptionParser.new do |opts|
 		options[:ignoreInitialCommit] = true
 	end
 
+	opts.on("-x", "--ignoreCommits=", "Specify exceptional commit file Note:full sha1 list") do |ignoreCommits|
+		options[:ignoreCommits] = FileUtil.readFileAsArray(ignoreCommits)
+	end
+
 	opts.on("-a", "--filterAuthorMatch=", "Specify if match-only-filter for git blame result (default:#{options[:filterAuthorMatch]})") do |filterAuthorMatch|
 		options[:filterAuthorMatch] = filterAuthorMatch
 	end
@@ -497,6 +502,7 @@ else
 end
 
 puts "ignoreFiles=#{options[:ignoreFiles]}" if options[:verbose]
+puts "ignoreCommit=#{options[:ignoreCommits]}" if options[:verbose]
 
 # AND filter
 if options[:pathFilter] then
