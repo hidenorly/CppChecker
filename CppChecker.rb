@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 
-# Copyright 2022, 2023 hidenory
+# Copyright 2022, 2023, 2024 hidenory
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -561,7 +561,6 @@ if filterAuthorMatch || surpressNonIssue then
 	end
 end
 
-
 # ensure report out path
 FileUtil.ensureDirectory(options[:reportOutPath])
 
@@ -601,8 +600,14 @@ if options[:mode] == "summary" || options[:mode] == "all"
 	end
 
 	if options[:enableLinkInSummary] && reporter == MarkdownReporter then
+		reported = {}
 		results.each do |aResult|
-			aResult["moduleName"] = "[#{aResult["moduleName"]}](#{aResult["moduleName"]}.md)"
+			aModuleName = aResult["moduleName"]
+			if reported.has_key?(aModuleName) then
+				aModuleName = aResult["path"].to_s.gsub("/","_")
+			end
+			reported[aModuleName] = true
+			aResult["moduleName"] = "[#{aResult["moduleName"]}](#{aModuleName}.md)"
 		end
 	end
 
@@ -614,6 +619,7 @@ end
 
 # create per-component report
 if options[:mode] == "detail" || options[:mode] == "all" then
+	reported = {}
 	_result.each do |moduleName, theResult|
 		results = theResult[:results]
 		theModulePath = theResult[:path]
@@ -650,7 +656,13 @@ if options[:mode] == "detail" || options[:mode] == "all" then
 			end
 		end
 
-		_reporter = reporter.new( options[:reportOutPath] ? "#{options[:reportOutPath]}/#{theResult[:name]}" : options[:reportOutPath] )
+		reportFilename = options[:reportOutPath] ? "#{options[:reportOutPath]}/#{theResult[:name]}" : options[:reportOutPath]
+		if reported.has_key?(reportFilename) then
+			_convertedPath = theResult[:path].to_s.gsub("/","_")
+			reportFilename = options[:reportOutPath] ? "#{options[:reportOutPath]}/#{_convertedPath}" : reportFilename
+		end
+		reported[reportFilename] = true
+		_reporter = reporter.new( reportFilename )
 		_reporter.report( results, options[:detailSection] )
 		_reporter.close()
 	end
