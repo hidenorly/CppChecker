@@ -538,7 +538,6 @@ _result = _result.sort
 filterAuthorMatch = options[:filterAuthorMatch]
 surpressNonIssue = options[:surpressNonIssue]
 if filterAuthorMatch || surpressNonIssue then
-	zeroResultPaths = []
 	_result.each do |path, theResult|
 		_theResults = []
 		theResult[:results].each do |aResult|
@@ -554,11 +553,13 @@ if filterAuthorMatch || surpressNonIssue then
 			_theResults << aResult if validResult
 		end
 		theResult[:results] = _theResults
-		zeroResultPaths << path if theResult[:results].empty?
 	end
-	zeroResultPaths.each do |aPath|
-		_result.delete(aPath)
+
+	__result = {}
+	_result.each do |path, theResult|
+		__result[path] = theResult if !theResult[:results].empty?
 	end
+	_result = __result
 end
 
 # ensure report out path
@@ -578,11 +579,13 @@ if options[:mode] == "summary" || options[:mode] == "all"
 			end
 		end
 		if !theSummary.empty? then
-			result = {}
-			result["moduleName"] = theResult[:name]
-			result["path"] = theResult[:path]
-			result = result.merge(theSummary)
-			results << result
+			if !theResult[:results].empty? then
+				result = {}
+				result["moduleName"] = theResult[:name]
+				result["path"] = theResult[:path]
+				result = result.merge(theSummary)
+				results << result
+			end
 		end
 	end
 
