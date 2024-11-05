@@ -332,7 +332,7 @@ class CppCheckExecutor < TaskAsync
 		results[:path] = @path.slice( AndroidUtil.getAndroidRootPath(@path).to_s.length, @path.length )
 		results[:fullPath] = @path
 		results[:results] = @cppCheck.execute( isGitDirectory ? @options[:gitOpt] ? GitUtil.getFilesWithGitOpts( @path, @options[:gitOpt] ) : ["."] : ["."] )
-		results[:results] = enhanceResult( results[:results], @options[:ignoreInitialCommit] ) if isGitDirectory
+		results[:results] = enhanceResult( results[:results], @options[:ignoreInitialCommit] ) if isGitDirectory && (!@options[:detailSection] || @options[:detailSection].include?("commitId") || @options[:detailSection].include?("author") || @options[:detailSection].include?("authorMail"))
 		@resultCollector.onResult(@path, results) if @resultCollector && !results[:results].empty?
 		_doneTask()
 	end
